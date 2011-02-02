@@ -83,6 +83,41 @@ LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PI
 //
 //@******************************* functions *********************************
 
+//@@---------------------------- update_display ------------------------------
+//
+// Update the display to show the current calculated RPM etc.
+// 
+void update_display()
+{
+  // 
+  // Line 0: Print the RPM
+  // 
+  Serial.println(rpm, DEC);
+  lcd.setCursor(0, 0);
+  lcd.print(rpm);
+  lcd.print(" r/m    ");
+
+  // 
+  // Line 1: Print the surface speed in metres/minute
+  // (in debug mode, show the raw rev count and uptime instead)
+  // 
+  lcd.setCursor(0, 1);
+  lcd.print(" ");
+
+#ifdef COUNT_REVS
+  lcd.print(allrevs);
+  lcd.print(" revs. ut");
+  lcd.print(millis()/1000);
+#else
+  // At an assumed diameter of diameter_mm, convert revoutions/min to tangential metres/min
+  // As we're truncating result to whole metres, can use totally bogus approximation for pi=22/7
+  mpm =  diameter_mm * 22 * rpm / 7000;
+  lcd.print(mpm);
+  lcd.print(" m/m      ");
+#endif
+
+}
+
 //
 //@@------------------------- handle_button_events ---------------------------
 void handle_button_events() 
@@ -122,13 +157,15 @@ void handle_button_events()
 //
 // Toggle the state of the diagnostic LED
 //
-void flipled() {
+void flipled() 
+{
   digitalWrite(PIN_LED_DIAG,diag_led=!diag_led);
 }
 //
 //@@------------------------------ heartbeat ---------------------------------
 
-void heartbeat() {
+void heartbeat() 
+{
   if (MILLIS_SINCE(last_heartbeat) < HEARTBEAT_INTERVAL) return;
   
   flipled();
@@ -174,41 +211,6 @@ void recalculate_rpm()
   update_display();
 }
 
-//@@---------------------------- update_display ------------------------------
-//
-// Update the display to show the current calculated RPM etc.
-// 
-void update_display()
-{
-  // 
-  // Line 0: Print the RPM
-  // 
-  Serial.println(rpm, DEC);
-  lcd.setCursor(0, 0);
-  lcd.print(rpm);
-  lcd.print(" r/m    ");
-
-  // 
-  // Line 1: Print the surface speed in metres/minute
-  // (in debug mode, show the raw rev count and uptime instead)
-  // 
-  lcd.setCursor(0, 1);
-  lcd.print(" ");
-
-#ifdef COUNT_REVS
-  lcd.print(allrevs);
-  lcd.print(" revs. ut");
-  lcd.print(millis()/1000);
-#else
-  // At an assumed diameter of diameter_mm, convert revoutions/min to tangential metres/min
-  // As we're truncating result to whole metres, can use totally bogus approximation for pi=22/7
-  mpm =  diameter_mm * 22 * rpm / 7000;
-  lcd.print(mpm);
-  lcd.print(" m/m      ");
-#endif
-
-}
-
 //@@------------------------------ sensor_isr --------------------------------
 //
 // Called once for every rising edge on pin2 (INT0).
@@ -226,7 +228,8 @@ void sensor_isr()
 // Attach an interrupt handler to pin 2
 // Output a hello world message
 // 
-void setup() {
+void setup() 
+{
   // Set up the diagnostic LED
   pinMode(PIN_LED_DIAG, OUTPUT);
   flipled();
