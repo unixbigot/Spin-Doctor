@@ -7,8 +7,8 @@
 // fixed hall-effect sensor.
 //
 // An interrupt is used to count pulses, and the pulse count is periodically 
-// converted to the calculated revolutions per minute since the previous
-// calculation.
+// converted to the calculated revolutions per minute (averaged over the 
+// interval since the previous calculation).
 //
 // A diameter value is maintained (changeable via two buttons) and the 
 // linear speed (in surface metres/minute) is also calculated at that
@@ -46,13 +46,16 @@
 #define PIN_UNUSED_A5   A5
 
 
-// set count_revs to show total revolutions ever (useful for debugging
+// set count_revs=1 to show total revolutions ever (useful for debugging
 // calculations or intermittent sensor triggering)
-#define COUNT_REVS             1
+// set count_revs=0 to show diameter
+#define COUNT_REVS             0
 
 #define INITIAL_DIAMETER      25
-#define INITIAL_BUTTON_DELAY 512
-#define MIN_BUTTON_DELAY       8
+#define MAX_DIAMETER	    1000
+#define INITIAL_BUTTON_DELAY 256
+#define HOLD_BUTTON_DELAY    512
+#define MIN_BUTTON_DELAY       2
 
 #define HEARTBEAT_INTERVAL   500
 
@@ -63,17 +66,20 @@
 //@********************************** data ***********************************
 
 volatile byte revs;  // number of revolutions counted since last calculation
-volatile byte diag_led;   // current value of the diagnostic LED output
-byte diameter_mm = INITIAL_DIAMETER;    // assumed workpiece diameter in millimetres
+volatile byte spinner;   // animated heartbeat cursor
+volatile byte hold;
+
+unsigned int  diameter_mm = INITIAL_DIAMETER;    // assumed workpiece diameter in millimetres
 unsigned long rpm;                      // calculated RPM
 unsigned long mpm;                      // calculated surface speed in m/m
 unsigned long allrevs;                  // total number of revolutions ever counted
 unsigned long last_update_time;         // time (in millis) of last recalculation
 unsigned long last_heartbeat;
-unsigned long last_button_event;      // debouncing for button
-byte button_delay = INITIAL_BUTTON_DELAY;
+unsigned long last_button_poll;      // debouncing for button
+unsigned int  button_delay = INITIAL_BUTTON_DELAY;
 
-#define MILLIS_SINCE(when) (long)(millis()-(when))
+#define MILLIS_SINCE(when) (long)(millis() - (when))
+//#define MILLIS_SINCE(when) (millis() - (when))
 
 // initialize the LCD library with the numbers of the interface pins
 //               RS,  RW, EN,D7,D6,D5,D4
@@ -87,24 +93,28 @@ LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PI
 //
 // Update the display to show the current calculated RPM etc.
 // 
-void update_display()
+void update_display(boolean clear=0)
 {
+  if (clear)
+    lcd.clear();
+  
   // 
   // Line 0: Print the RPM
   // 
   Serial.println(rpm, DEC);
   lcd.setCursor(0, 0);
   lcd.print(rpm);
-  lcd.print(" r/m    ");
+  lcd.print(" r/m ");
+  if (hold) lcd.print("HOLD");
+  lcd.print("    ");
 
   // 
   // Line 1: Print the surface speed in metres/minute
   // (in debug mode, show the raw rev count and uptime instead)
   // 
   lcd.setCursor(0, 1);
-  lcd.print(" ");
 
-#ifdef COUNT_REVS
+#if COUNT_REVS
   lcd.print(allrevs);
   lcd.print(" revs. ut");
   lcd.print(millis()/1000);
@@ -113,7 +123,9 @@ void update_display()
   // As we're truncating result to whole metres, can use totally bogus approximation for pi=22/7
   mpm =  diameter_mm * 22 * rpm / 7000;
   lcd.print(mpm);
-  lcd.print(" m/m      ");
+  lcd.print(" m/m @ d=");
+  lcd.print((int)diameter_mm);
+  lcd.print("mm  ");
 #endif
 
 }
@@ -122,20 +134,37 @@ void update_display()
 //@@------------------------- handle_button_events ---------------------------
 void handle_button_events() 
 {
-  if (MILLIS_SINCE(last_button_event) < button_delay) {
+  if (MILLIS_SINCE(last_button_poll) < button_delay) {
     // still within debounce interval of last button event, do nothing
     return;
   }
+
+  // since a button down event happened, set the debounce timer
+  last_button_poll = millis();
   
+  // 
+  // Check the UP and DOWN buttons
+  // 
   if (digitalRead(PIN_BTN_UP)==0) {
-    ++diameter_mm;
+    if (diameter_mm < MAX_DIAMETER) ++diameter_mm;
+    tone(PIN_SPKR,880,min(8,button_delay));
     update_display();
     // fall thru to delay update
   }
   else if (digitalRead(PIN_BTN_DOWN)==0) {
-    --diameter_mm;
+    if (diameter_mm > 1) --diameter_mm;
+    tone(PIN_SPKR,440,min(8,button_delay));
     update_display();
     // fall thru to delay update
+  }
+  else if (digitalRead(PIN_BTN_MODE)==0) {
+    // hold button active high
+    hold = !hold;
+    tone(PIN_SPKR,440*3,256);
+    digitalWrite(PIN_LED_HOLD, hold);
+    update_display();
+    button_delay = HOLD_BUTTON_DELAY;
+    return;
   }
   else {
     // No input, reset the debounce delay to 'slow' mode
@@ -143,35 +172,29 @@ void handle_button_events()
     return;
   }
 
-  // since a button down event happened, set the debounce timer
-  last_button_event = millis();
-
   // delay update - halve the button delay for consecutive events.
   // The longer you hold down a button the faster the button event repeats
   if (button_delay > MIN_BUTTON_DELAY) {
-    button_delay <<= 2;
+    button_delay = button_delay * 9 / 10;
   }
 }
 
-//@@------------------------------- flipled ----------------------------------
-//
-// Toggle the state of the diagnostic LED
-//
-void flipled() 
-{
-  digitalWrite(PIN_LED_DIAG,diag_led=!diag_led);
-}
 //
 //@@------------------------------ heartbeat ---------------------------------
 
 void heartbeat() 
 {
+  //static const char spinner_chars[4] = {'|','/','-','\\'}; // no good on .jp LCDs
+  static const char spinner_chars[4] = {'.','o','O','o'}; // no good on .jp LCDs
+
   if (MILLIS_SINCE(last_heartbeat) < HEARTBEAT_INTERVAL) return;
   
-  flipled();
-  last_heartbeat=millis();
+  spinner = ++spinner % 4;
+  digitalWrite(PIN_LED_DIAG,spinner%2);
   lcd.setCursor(15,0);
-  lcd.print(diag_led?'o':'.');
+  lcd.print(spinner_chars[spinner]);
+
+  last_heartbeat=millis();
 }
 
 
@@ -195,20 +218,27 @@ void heartbeat()
 void recalculate_rpm() 
 {
   long elapsed = MILLIS_SINCE(last_update_time);
+  boolean clear;
   
   if ((elapsed < MAX_UPDATE_INTERVAL) && (revs < MAX_REVS)) { 
     // Not yet time to recalculate the RPM
     return;
   }
-  
-  rpm = 60000 * revs / elapsed;
+  clear = (allrevs==0); // clear whole screen first time
+
+  if (!hold) {
+    // do not update if HOLD mode
+    rpm = 60000 * revs / elapsed;
+  }
   allrevs += revs;    		// count total revs for testing
 
   revs = 0; 			// reset the rev counter for next sample interval
   last_update_time = millis();
 
+  tone(PIN_SPKR,660,4);
+
   // Update the display 
-  update_display();
+  update_display(clear);
 }
 
 //@@------------------------------ sensor_isr --------------------------------
@@ -232,22 +262,23 @@ void setup()
 {
   // Set up the diagnostic LED
   pinMode(PIN_LED_DIAG, OUTPUT);
-  flipled();
+  digitalWrite(PIN_LED_DIAG, 1);
 
   // set up the LCD's number of columns and rows: 
   lcd.begin(8, 2);
 
   // Print a message to the LCD.
-  lcd.print("hello,");
+  lcd.print("RPMcounter v1.0");
   lcd.setCursor(0, 1);
-  lcd.print("world!");
+  lcd.print("unixbigot.id.au");
   
   // Configure the serial port
   Serial.begin(9600);
-  Serial.println("rpmcounter 1.0");
+  Serial.println("RPMcounter v1.0");
   
   // Configure the button inputs
   pinMode(PIN_BTN_MODE, INPUT); // button from oatley board - active high no pullup required
+  digitalWrite(PIN_BTN_MODE, 1);
   pinMode(PIN_BTN_UP, INPUT);   // up/down buttons are active low, no pullup required
   digitalWrite(PIN_BTN_UP, 1);
   pinMode(PIN_BTN_DOWN, INPUT);
