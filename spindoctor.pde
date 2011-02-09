@@ -1,4 +1,4 @@
-//@------------------------------ rpm counter ----------------- -*- C++ -*- --
+//@------------------------------ spin doctor ----------------- -*- C++ -*- --
 // 
 // This program implements an RPM and surface speed display for lathes,
 // bandsaws etc.
@@ -260,6 +260,9 @@ void sensor_isr()
 // 
 void setup() 
 {
+  static const char *version = "SpinDoctor v1.0";
+  static const char *author = "unixbigot.id.au";
+	
   // Set up the diagnostic LED
   pinMode(PIN_LED_DIAG, OUTPUT);
   digitalWrite(PIN_LED_DIAG, 1);
@@ -268,13 +271,15 @@ void setup()
   lcd.begin(8, 2);
 
   // Print a message to the LCD.
-  lcd.print("RPMcounter v1.0");
+  lcd.print(version);
   lcd.setCursor(0, 1);
-  lcd.print("unixbigot.id.au");
+  lcd.print(author);
   
   // Configure the serial port
   Serial.begin(9600);
-  Serial.println("RPMcounter v1.0");
+  Serial.print(version);
+  Serial.print(' ');
+  Serial.println(author);
   
   // Configure the button inputs
   pinMode(PIN_BTN_MODE, INPUT); // button from oatley board - active high no pullup required
