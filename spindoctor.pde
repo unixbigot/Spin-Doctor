@@ -244,11 +244,20 @@ void recalculate_rpm()
 //@@------------------------------ sensor_isr --------------------------------
 //
 // Called once for every rising edge on pin2 (INT0).
-// No debouncing, do that in hardware if necessary 
+//
+// It turns out the Hall Effect sensor is really noisy, at least
+// when doing 'wave a magnet past the sensor' tests.
+//
+// Ignore pulses within 10ms of another pulse.   
+// This limits measurable revolutions to less than 100*60 = 6,000 RPM.
 // 
 void sensor_isr()
 {
-  revs++;
+  static unsigned long last_interrupt = 0;
+  if (MILLIS_SINCE(last_interrupt) > 10) {
+    revs++;
+    last_interrupt=millis();
+  }
 }
 
 //@****************************** entry points *******************************
@@ -315,8 +324,9 @@ void loop()
 
   // 
   // Reflect the sensor state in the RUN LED
+  // Sensor is active-low so invert it.
   // 
-  digitalWrite(PIN_LED_RUN,digitalRead(PIN_SENSOR));
+  digitalWrite(PIN_LED_RUN,!digitalRead(PIN_SENSOR));
 
   // 
   // Check the value of the revolutions-since-last-recalculation 
