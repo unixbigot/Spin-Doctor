@@ -90,12 +90,14 @@
 #define MAX_DIAMETER_MET     1000
 #define MAX_DIAMETER_IMP     1440
 
-#define DISPLAY_MODE_TANGENTIAL 0
-#define DISPLAY_MODE_ODOMETER   1
+#define DISPLAY_MODE_TANGENTIAL  0
+#define DISPLAY_MODE_ODOMETER    1
+#define DISPLAY_MODE_SPEEDOMETER 2
 
 #define DEFAULT_UNITS 	UNITS_MET
 #define DEFAULT_MODE    DISPLAY_MODE_TANGENTIAL
 // Changing DEFAULT_MODE to ODOMETER is useful for testing debounce
+// Speedometer displays speed/distance in km or miles
 
 
 //@********************************** DATA ***********************************
@@ -252,6 +254,10 @@ void update_display(boolean clear=0)
     lcd.print(allrevs);
     lcd.print(" revs. ut");
     lcd.print(millis()/1000);
+    break;
+  case DISPLAY_MODE_SPEEDOMETER:
+    // Show speed and distance in km/h or mph
+    break;
   }
   Serial.println("");
 }
