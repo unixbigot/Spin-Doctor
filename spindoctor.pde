@@ -67,6 +67,8 @@
 // calculations or intermittent sensor triggering)
 // set count_revs=0 to show diameter
 
+#define PI 355/113
+
 #define INITIAL_BUTTON_DELAY 256
 #define HOLD_BUTTON_DELAY    512
 #define MIN_BUTTON_DELAY       2
@@ -80,7 +82,7 @@
 #define UNITS_IMP  1
 
 // Metric diameter stored as whole MM.  
-// Imperial diameter stored as fortieths of an inch (25 thou)
+// Imperial diameter stored as "whiskers" (fortieths of an inch, or 25 thousandths)
 
 // In either case, under initial diameter size can be varied by unit, 
 // over it, each button press changes by 5 units (5mm or 1/8 inch).
@@ -95,7 +97,7 @@
 #define DISPLAY_MODE_SPEEDOMETER 2
 
 #define DEFAULT_UNITS 	UNITS_MET
-#define DEFAULT_MODE    DISPLAY_MODE_TANGENTIAL
+#define DEFAULT_MODE    DISPLAY_MODE_ODOMETER
 // Changing DEFAULT_MODE to ODOMETER is useful for testing debounce
 // Speedometer displays speed/distance in km or miles
 
@@ -105,9 +107,10 @@
 struct _flags {
   byte units: 1;
   byte hold: 1;
-  byte mode:2;
+  byte mode: 2;
   byte spinner: 2;
-} flags = { DEFAULT_MODE, DEFAULT_UNITS, 0 };
+  byte _unused_flags: 2;
+} flags = { DEFAULT_UNITS, 0, DEFAULT_MODE, 0 };
 
 unsigned int  button_delay  = INITIAL_BUTTON_DELAY;;
 
@@ -134,6 +137,23 @@ LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PI
 //@******************************* FUNCTIONS *********************************
 
 //
+//@@------------------------------ format_03d --------------------------------
+// 
+// given a value between 0 and 999, write as a 3 digit decimal 
+// with leading zeros
+// 
+void format_03d(Print *stream, int d) 
+{
+  if (d < 10) {
+    stream->print("00");
+  }
+  else if (d < 100) {
+    stream->print("0");
+  }
+  stream->print(d);
+}
+
+//
 //@@-------------------------- format_thousandths ----------------------------
 //
 // given a value in thousandths, display the whole number value in 
@@ -148,12 +168,12 @@ void format_thousandths(Print *stream, int speed, char *units)
 {
     if (speed < 1000) {
       stream->print(".");
-      stream->print(speed%1000);
+      format_03d(stream, speed%1000);
     }
     else if (speed < 10000) {
       stream->print(speed/1000);
       stream->print('.');
-      stream->print((speed%1000+50)/100);
+      format_03d(stream, (speed%1000+50)/100);
     }
     else {
       stream->print((speed+500)/1000);
@@ -163,7 +183,6 @@ void format_thousandths(Print *stream, int speed, char *units)
 
 //
 //@@----------------------------- max_diameter -------------------------------
-
 unsigned long max_diameter(void) 
 {
   switch (flags.units) {
@@ -206,6 +225,8 @@ void diameter_minus()
 // 
 void update_display(boolean clear=0)
 {
+  unsigned long dist;
+  
   if (clear)
     lcd.clear();
   
@@ -216,7 +237,7 @@ void update_display(boolean clear=0)
 
   lcd.setCursor(0, 0);
   lcd.print(rpm);
-  lcd.print(" r/m ");
+  lcd.print(" rpm ");
   if (flags.hold) lcd.print("HOLD");
   lcd.print("    ");
 
@@ -233,18 +254,18 @@ void update_display(boolean clear=0)
     // At an assumed diameter of diameter_mm, convert revoutions/min to tangential metres/min
     // As we're truncating result to three places, can use a handy approximation for 
     // pi=355/113 (good to 7 decimal places, unlike 22/7 only good to two places)
-    speed =  diameter * 355 * rpm / 113;
+    speed =  diameter * rpm * PI ;
     switch (flags.units) {
     case UNITS_MET:
-      format_thousandths(&lcd, speed, " m/m @ d=");
+      format_thousandths(&lcd, speed, "m/m @d ");
       lcd.print((int)diameter);
       lcd.print("mm  ");
       break;
     case UNITS_IMP:
-      // Imperial speed is in crazy units of fortieths of an inch per minute.
-      // For consistency with mm/m, multiply by 25/12 to get still crazier thousandths of a foot/min
+      // Imperial speed is in crazy units of whiskers (1/40") per minute.
+      // For consistency with mm/m, multiply by 25/12 to get still crazier millifoot/min
       speed = speed * 25 / 12;
-      format_thousandths(&lcd, speed, " fpm @ d=");
+      format_thousandths(&lcd, speed, "fpm @d ");
       format_thousandths(&lcd, diameter*40, "\"");
       break;
     }
@@ -252,8 +273,19 @@ void update_display(boolean clear=0)
   case DISPLAY_MODE_ODOMETER:
     // Show total revolutions (odometer)
     lcd.print(allrevs);
-    lcd.print(" revs. ut");
-    lcd.print(millis()/1000);
+    lcd.print(" revs ");
+    dist = allrevs * diameter * PI;
+    switch (flags.units) {
+    case UNITS_MET:
+      // dist is in mm, convert to metres (thousandths of a km)
+      format_thousandths(&lcd, dist/1000, "km");
+      break;
+    case UNITS_IMP:
+      // dist is in whiskers (1/40"), convert to thousandths of a mile 
+      // miles = whiskers / ( 40 * 12 * 5280)
+      format_thousandths(&lcd, dist/2534, "mi");
+      break;
+    }
     break;
   case DISPLAY_MODE_SPEEDOMETER:
     // Show speed and distance in km/h or mph
@@ -348,7 +380,8 @@ void heartbeat()
 // 
 void recalculate_rpm() 
 {
-  if (!revs ||
+  if (rpm==0 && !revs     // really low revs, extend the sample window
+      ||
       (MILLIS_SINCE(last_update_time) < MAX_UPDATE_INTERVAL) && (revs < MAX_REVS)) { 
     // No data, or not yet time to recalculate the RPM
     return;
@@ -358,11 +391,16 @@ void recalculate_rpm()
 
   if (!flags.hold) {
     // do not update if HOLD mode
-    rpm = 60000 * revs / MILLIS_BETWEEN(last_update_time, last_sensor_event);
+    if (revs == 0) {
+      rpm = 0;
+    }
+    else {
+      rpm = 60000 * revs / MILLIS_BETWEEN(last_update_time, last_sensor_event);
+    }
   }
+  last_update_time = revs?last_sensor_event:millis(); // record start time of new sample window
   allrevs += revs;    		        // count total revs for 'odometer mode'
   revs = 0; 			        // reset the rev counter for next sample interval
-  last_update_time = last_sensor_event; // record start time of new sample window
 
   tone(PIN_SPKR,660,4);
 
