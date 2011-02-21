@@ -1,10 +1,13 @@
 //@------------------------------ spin doctor ----------------- -*- C++ -*- --
 // 
-// This program implements an RPM and surface speed display for lathes,
-// bandsaws etc.
+// This program implements a general RPM and surface speed display.
 //
-// It expects a single magnet epoxied to a shaft or pulley, adjacent to a
-// fixed hall-effect sensor.  Optical sensing is also possible.
+// It can be used to retrofit digital readout to  lathes and bandsaws etc.
+// It is also usable as a bike computer or vehicle speedometer.
+//
+// It expects a revolutions sensor consisting of a moving magnet affixed to a 
+// shaft or pulley, adjacent to a fixed hall-effect sensor.
+// Optical sensing is also possible.
 //
 // An interrupt is used to count pulses, and the pulse count is periodically 
 // converted to the calculated revolutions per minute (averaged over the 
@@ -14,19 +17,23 @@
 // linear speed (in surface metres/minute) is also calculated at that
 // diameter.
 //
-// This allows the surface speed of a workpiece or tool to be calculated,
-// giving your tool a direct readout in surface metres per miniute 
-// (or feet per minute if you are from one of Those Places).
+// This allows the surface speed of a workpiece, tool or vehicle to be calculated,
+// giving you a direct readout in surface metres per minute 
+// (or feet per minute if you are from one of Those Places).   In vehicle
+// mode a speedometer/odometer reading in kmh or mph is displayed.
 // 
-//
 //@********************************** BUGS ***********************************
 //
 // * Primitive software debouncing of noisy sensor limits high speed sensing
 //
 //@********************************** TODO ***********************************
 // 
-// * store preferences (last diameter, units) in EEPROM
-// * accept configuration commands over RS232 (change units etc)
+// * refactor display code into small subroutines
+// * use short-press for mode change, long-press for HOLD
+// * support 4way or 5way hat switches
+// * support a second sensor (for engine/crank revs) (for bike computers etc.)
+// * store preferences (display mode, last diameter, units) in EEPROM
+// * accept configuration commands over RS232 (mode set, change units etc)
 // * make the RS232 output parsable
 // * battery voltage sensing
 
@@ -97,7 +104,7 @@
 #define DISPLAY_MODE_SPEEDOMETER 2
 
 #define DEFAULT_UNITS 	UNITS_MET
-#define DEFAULT_MODE    DISPLAY_MODE_ODOMETER
+#define DEFAULT_MODE    DISPLAY_MODE_TANGENTIAL
 // Changing DEFAULT_MODE to ODOMETER is useful for testing debounce
 // Speedometer displays speed/distance in km or miles
 
@@ -247,6 +254,7 @@ void update_display(boolean clear=0)
   // 
   lcd.setCursor(0, 1);
 
+  speed = diameter * rpm * PI ;
   switch (flags.mode) {
   case DISPLAY_MODE_TANGENTIAL:
     // Show surface speed
@@ -254,7 +262,6 @@ void update_display(boolean clear=0)
     // At an assumed diameter of diameter_mm, convert revoutions/min to tangential metres/min
     // As we're truncating result to three places, can use a handy approximation for 
     // pi=355/113 (good to 7 decimal places, unlike 22/7 only good to two places)
-    speed =  diameter * rpm * PI ;
     switch (flags.units) {
     case UNITS_MET:
       format_thousandths(&lcd, speed, "m/m @d ");
@@ -288,9 +295,18 @@ void update_display(boolean clear=0)
     }
     break;
   case DISPLAY_MODE_SPEEDOMETER:
-    // Show speed and distance in km/h or mph
-    break;
+    switch (flags.units) {
+    case UNITS_MET:
+      // Show speed and distance in km/h and km
+      // TODO: implement
+      break;
+    case UNITS_IMP:
+      // Show speed and distance in mph and miles
+      // TODO: implement
+      break;
+    }
   }
+  
   Serial.println("");
 }
 
