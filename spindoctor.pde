@@ -1,17 +1,17 @@
 //@------------------------------ spin doctor ----------------- -*- C++ -*- --
 // 
-// This program implements a general RPM and surface speed display.
+// This program implements a general purpose tachometer/speedometer.
 //
 // It can be used to retrofit digital readout to  lathes and bandsaws etc.
 // It is also usable as a bike computer or vehicle speedometer.
 //
 // It expects a revolutions sensor consisting of a moving magnet affixed to a 
-// shaft or pulley, adjacent to a fixed hall-effect sensor.
-// Optical sensing is also possible.
+// shaft or pulley, passing a fixed hall-effect sensor once per revolution.
+// Optical sensing using a transmissive or reflective IR sensor is also possible.
 //
 // An interrupt is used to count pulses, and the pulse count is periodically 
 // converted to the calculated revolutions per minute (averaged over the 
-// interval since the previous calculation).
+// interval since the previous calculation).  
 //
 // A diameter value is maintained (changeable via two buttons) and the 
 // linear speed (in surface metres/minute) is also calculated at that
@@ -41,6 +41,9 @@
 
 //@******************************* CONSTANTS *********************************
 
+// 
+//@@ Pin Assignments
+// 
 #define PIN_RX		 0
 #define PIN_TX           1
 
@@ -70,74 +73,109 @@
 #define PIN_UNUSED_A5   A5
 
 
-// set count_revs=1 to show total revolutions ever (useful for debugging
-// calculations or intermittent sensor triggering)
-// set count_revs=0 to show diameter
-
+// 
+// Configuration constants
+// 
+// Don't change the value of PI unless you are from another universe.
+//
 #define PI 355/113
 
+// Control auto-repeat and debounce on buttons
 #define INITIAL_BUTTON_DELAY 256
 #define HOLD_BUTTON_DELAY    512
 #define MIN_BUTTON_DELAY       2
 
+// Speed of the heartbeat display
 #define HEARTBEAT_INTERVAL   500
 
+// Display is updated whenever MAX_REVS are counted or MAX_UPDATE_INTERVAL has elapsed
 #define MAX_REVS	     250
 #define MAX_UPDATE_INTERVAL 6000
 
-#define UNITS_MET  0
-#define UNITS_IMP  1
-
-// Metric diameter stored as whole MM.  
-// Imperial diameter stored as "whiskers" (fortieths of an inch, or 25 thousandths)
-
-// In either case, under initial diameter size can be varied by unit, 
-// over it, each button press changes by 5 units (5mm or 1/8 inch).
+// A diameter value is maintained for converting angular speed to linear speed
+//
+// Metric diameter is stored as whole millimetres.
+// Imperial diameter is stored as "whiskers" (1 whisker = 1/40 inch, or 25 thousandths of an inch)
+//
+// Buttons can be used to change the current diameter.  For small diameters
+// (<= than the initial diameter of 50mm/2") each button press changes the
+// entered size by 1 unit; at larger diameters, each button press changes by
+// 5 units (5mm or 1/8 inch).
+//
 
 #define INITIAL_DIAMETER_MET   50
 #define INITIAL_DIAMETER_IMP   80
 #define MAX_DIAMETER_MET     1000
 #define MAX_DIAMETER_IMP     1440
 
+// 
+// Display configuration
+//
+// The ubiquitous 16x2 LCD is used for output.
+//
+// The first line is always the RPM
+// The second line is changeable according to the mode flag:
+// 
+// DISPLAY_MODE_TANGENTIAL  - surface speed at entered diameter
+// DISPLAY_MODE_ODOMETER    - total revolutions and distance
+// DISPLAY_MODE_SPEEDOMETER - speed and distance
+//
+// In each mode either metric or Imperial measures are used depending on the
+// units flag.
+//
 #define DISPLAY_MODE_TANGENTIAL  0
 #define DISPLAY_MODE_ODOMETER    1
 #define DISPLAY_MODE_SPEEDOMETER 2
 
+#define UNITS_MET  0
+#define UNITS_IMP  1
+
 #define DEFAULT_UNITS 	UNITS_MET
+
+// Changing DEFAULT_MODE to ODOMETER is useful for testing 
 #define DEFAULT_MODE    DISPLAY_MODE_TANGENTIAL
-// Changing DEFAULT_MODE to ODOMETER is useful for testing debounce
-// Speedometer displays speed/distance in km or miles
 
 
 //@********************************** DATA ***********************************
 
+// 
+// Configuration information (as stored in EEPROM)
+// 
 struct _flags {
   byte units: 1;
   byte hold: 1;
   byte mode: 2;
-  byte spinner: 2;
-  byte _unused_flags: 2;
+  byte _unused_flags: 4;
 } flags = { DEFAULT_UNITS, 0, DEFAULT_MODE, 0 };
 
-unsigned int  button_delay  = INITIAL_BUTTON_DELAY;;
+struct _state {
+  byte spinner: 2;
+  byte unused_state: 6;
+} state;
+  
+// 
+// Other RAM variables
+// 
+unsigned int button_delay  = INITIAL_BUTTON_DELAY; // repeat interval for button presses
 
 volatile byte revs;                     // number of revolutions counted in this sample window
 unsigned long allrevs;                  // total number of revolutions ever counted
 unsigned long last_update_time;         // time (in millis) of start of sample window
 unsigned long last_sensor_event;        // time (in millis) of most recent sensor event
-unsigned int  diameter;			// assumed workpiece diameter in mm or inch/40
+unsigned int  diameter;			// assumed workpiece diameter in mm or whiskers (1/40")
 
 unsigned long rpm;                      // calculated RPM
-unsigned long speed;                    // calculated surface speed in mm/m or inch/m
+unsigned long speed;                    // calculated surface speed in mm/m or whisker/m
 
 unsigned long last_heartbeat;           // time of last heartbeat animation change
 unsigned long last_button_poll;         // debouncing for button
 
-
+// macros for handling time intervals
+// (casting to signed neatly handles millisecond counter wrap after 50 days uptime)
 #define MILLIS_SINCE(when) (long)(millis() - (when))
 #define MILLIS_BETWEEN(start,stop) (long)((stop) - (start))
 
-// initialize the LCD library with the numbers of the interface pins
+// LCD output object - see pin assignments above
 LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7);
 
 //
@@ -149,7 +187,7 @@ LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PI
 // given a value between 0 and 999, write as a 3 digit decimal 
 // with leading zeros
 // 
-void format_03d(Print *stream, int d) 
+void format_03d(Print *stream, unsigned int d) 
 {
   if (d < 10) {
     stream->print("00");
@@ -171,7 +209,7 @@ void format_03d(Print *stream, int d)
 //     if  2762 is passed, print "2.76"
 //     if 98765 is passed, print "99"
 //
-void format_thousandths(Print *stream, int speed, char *units) 
+void format_thousandths(Print *stream, unsigned int speed, char *units) 
 {
     if (speed < 1000) {
       stream->print(".");
@@ -223,7 +261,7 @@ void diameter_plus()
 //@@---------------------------- diameter_minus ------------------------------
 void diameter_minus() 
 {
-  diameter -= (diameter >= default_initial_diameter())?5:1;
+  diameter -= (diameter > default_initial_diameter())?5:1;
 }
 
 //@@---------------------------- update_display ------------------------------
@@ -253,8 +291,8 @@ void update_display(boolean clear=0)
   // (in debug mode, show the raw rev count and uptime instead)
   // 
   lcd.setCursor(0, 1);
-
   speed = diameter * rpm * PI ;
+
   switch (flags.mode) {
   case DISPLAY_MODE_TANGENTIAL:
     // Show surface speed
@@ -369,10 +407,10 @@ void heartbeat()
 
   if (MILLIS_SINCE(last_heartbeat) < HEARTBEAT_INTERVAL) return;
   
-  flags.spinner++;
-  digitalWrite(PIN_LED_DIAG,flags.spinner%2);
+  state.spinner++;
+  digitalWrite(PIN_LED_DIAG,state.spinner%2);
   lcd.setCursor(15,0);
-  lcd.print(spinner_chars[flags.spinner]);
+  lcd.print(spinner_chars[state.spinner]);
 
   last_heartbeat=millis();
 }

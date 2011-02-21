@@ -11,7 +11,22 @@ tools such as lathes and saws.  It can also can be used for vehicle
 speedometer/odometer or bike computer.
 
 I was motivated to construct this project to confirm my estimation of the
-undocumented output speeds of my second hand bandsaw and lathe.
+undocumented output speeds of my second hand bandsaw and lathe.   
+
+On the theory that anything worth doing is worth overdoing, I decided
+to generalise it to act as a speedometer/odometer as well as tachometer.
+
+Angular velocity is measured and displayed in RPM and Hz.
+
+Using an entered diameter value, tangential (or road) speed is 
+output in one of:
+
+  - metres per minute
+  - feet per minute
+  - kilometres per hour
+  - miles per hour
+
+
 
 Hardware Overview
 -----------------
@@ -20,3 +35,11 @@ Hardware Overview
 
 ### Output 
 
+Firmware Overview
+-----------------
+
+### Pin assignment and setup
+
+### Interrupts
+
+### Main loop
