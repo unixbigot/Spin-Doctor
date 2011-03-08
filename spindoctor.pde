@@ -292,6 +292,7 @@ void update_display(boolean clear=0)
   // 
   lcd.setCursor(0, 1);
   speed = diameter * rpm * PI ;
+  Serial.print(" raw-speed="); Serial.print(speed); // FIXME: remove once speed calc trusted
 
   switch (flags.mode) {
   case DISPLAY_MODE_TANGENTIAL:
@@ -311,7 +312,7 @@ void update_display(boolean clear=0)
       // For consistency with mm/m, multiply by 25/12 to get still crazier millifoot/min
       speed = speed * 25 / 12;
       format_thousandths(&lcd, speed, "fpm @d ");
-      format_thousandths(&lcd, diameter*40, "\"");
+      format_thousandths(&lcd, diameter*25, "\"");// whiskers*25 => milli-inches
       break;
     }
     break;
@@ -319,7 +320,7 @@ void update_display(boolean clear=0)
     // Show total revolutions (odometer)
     lcd.print(allrevs);
     lcd.print(" revs ");
-    dist = allrevs * diameter * PI;
+    dist = allrevs * diameter * PI;  // overflows after 4294km or 1694mi
     switch (flags.units) {
     case UNITS_MET:
       // dist is in mm, convert to metres (thousandths of a km)
