@@ -182,6 +182,20 @@ LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PI
 //@******************************* FUNCTIONS *********************************
 
 //
+//@@------------------------------ format_02d --------------------------------
+// 
+// given a value between 0 and 99, write as a 2 digit decimal 
+// with leading zeros
+// 
+void format_02d(Print *stream, unsigned int d) 
+{
+  if (d < 10) {
+    stream->print("0");
+  }
+  stream->print(d);
+}
+
+//
 //@@------------------------------ format_03d --------------------------------
 // 
 // given a value between 0 and 999, write as a 3 digit decimal 
@@ -209,7 +223,7 @@ void format_03d(Print *stream, unsigned int d)
 //     if  2762 is passed, print "2.76"
 //     if 98765 is passed, print "99"
 //
-void format_thousandths(Print *stream, unsigned int speed, char *units) 
+void format_thousandths(Print *stream, unsigned long speed, char *units) 
 {
     if (speed < 1000) {
       stream->print(".");
@@ -218,7 +232,7 @@ void format_thousandths(Print *stream, unsigned int speed, char *units)
     else if (speed < 10000) {
       stream->print(speed/1000);
       stream->print('.');
-      format_03d(stream, (speed%1000+50)/100);
+      format_02d(stream, (speed%1000+50)/10);
     }
     else {
       stream->print((speed+500)/1000);
